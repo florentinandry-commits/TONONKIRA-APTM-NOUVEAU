@@ -1,0 +1,65 @@
+
+name: Build TONONKIRA A.P.T.M. APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Verify ZIP
+        run: |
+          ls -la
+          test -f TONONKIRA_APTM_NOUVEAU.zip
+
+      - name: Extract project
+        run: |
+          mkdir -p source
+          unzip -o TONONKIRA_APTM_NOUVEAU.zip -d source
+
+      - name: Locate Android project
+        run: |
+          SETTINGS_FILE=$(find source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "ERROR: settings.gradle introuvable"
+            exit 1
+          fi
+          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Projet: $PROJECT_DIR"
+
+      - name: Build APK
+        run: |
+          gradle -p "$PROJECT_DIR" assembleDebug --stacktrace
+
+      - name: Verify APK
+        run: |
+          APK=$(find "$PROJECT_DIR" -type f -name "*.apk" -print -quit)
+          test -n "$APK"
+          echo "APK généré: $APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TONONKIRA-APTM-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
