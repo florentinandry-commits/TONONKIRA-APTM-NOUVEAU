@@ -1,4 +1,3 @@
-
 name: Build TONONKIRA A.P.T.M. APK
 
 on:
@@ -28,7 +27,6 @@ jobs:
 
       - name: Verify ZIP
         run: |
-          ls -la
           test -f TONONKIRA_APTM_NOUVEAU.zip
 
       - name: Extract project
@@ -45,21 +43,23 @@ jobs:
           fi
           PROJECT_DIR=$(dirname "$SETTINGS_FILE")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Projet: $PROJECT_DIR"
 
       - name: Build APK
         run: |
           gradle -p "$PROJECT_DIR" assembleDebug --stacktrace
 
-      - name: Verify APK
+      - name: Locate APK
         run: |
-          APK=$(find "$PROJECT_DIR" -type f -name "*.apk" -print -quit)
-          test -n "$APK"
-          echo "APK généré: $APK"
+          APK=$(find "$PROJECT_DIR" -type f -path "*/build/outputs/apk/debug/*.apk" -print -quit)
+          if [ -z "$APK" ]; then
+            echo "APK introuvable"
+            exit 1
+          fi
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TONONKIRA-APTM-APK
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
