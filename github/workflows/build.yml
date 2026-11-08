@@ -1,0 +1,44 @@
+name: Build TONONKIRA A.P.T.M. APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Extract project
+        run: |
+          mkdir -p source
+          unzip -o TONONKIRA_APTM_NOUVEAU.zip -d source
+
+      - name: Build APK
+        run: |
+          PROJECT_DIR=$(find source -name settings.gradle -printf '%h\n' | head -n 1)
+          test -n "$PROJECT_DIR"
+          gradle -p "$PROJECT_DIR" assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TONONKIRA-APTM-APK
+          path: source/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
