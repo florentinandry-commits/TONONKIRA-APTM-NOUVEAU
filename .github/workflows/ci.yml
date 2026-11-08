@@ -37,6 +37,12 @@ jobs:
           test -n "$TARGET"
           cp patches/ProjectionActivity.java "$TARGET"
 
+      - name: Apply MainActivity audio player
+        run: |
+          TARGET=$(find source -path '*/app/src/main/java/mg/aptm/tononkira/MainActivity.java' -print -quit)
+          test -n "$TARGET"
+          cp patches/MainActivity.java "$TARGET"
+
       - name: Build APK
         run: |
           PROJECT_DIR=$(find source -name settings.gradle -printf '%h\n' | head -n 1)
@@ -52,3 +58,4 @@ jobs:
           name: TONONKIRA-APTM-APK
           path: app-debug.apk
           if-no-files-found: error
+          
