@@ -1,3 +1,4 @@
+
 name: Build TONONKIRA A.P.T.M.
 
 on:
@@ -9,6 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,6 +30,12 @@ jobs:
         run: |
           mkdir -p source
           unzip -o TONONKIRA_APTM_NOUVEAU.zip -d source
+
+      - name: Apply ProjectionActivity fix
+        run: |
+          TARGET=$(find source -path '*/app/src/main/java/mg/aptm/tononkira/ProjectionActivity.java' -print -quit)
+          test -n "$TARGET"
+          cp patches/ProjectionActivity.java "$TARGET"
 
       - name: Build APK
         run: |
