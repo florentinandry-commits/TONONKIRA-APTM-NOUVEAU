@@ -1,4 +1,3 @@
-
 package mg.aptm.tononkira;
 
 import android.app.Activity;
@@ -10,6 +9,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.view.Gravity;
 import android.view.View;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.widget.*;
 import android.media.MediaPlayer;
 import java.util.ArrayList;
@@ -20,20 +21,24 @@ public class MainActivity extends Activity {
     private final int PICK_TEXT = 10, PICK_AUDIO = 11;
 
     private ArrayList<Song> songs;
+    private ArrayList<Song> visibleSongs;
+
     private ArrayAdapter<String> adapter;
+    private ArrayList<String> names;
+
     private ListView list;
-
+    private EditText search;
     private MediaPlayer player;
-    private int selected = -1;
-    private boolean prepared = false;
-    private boolean isPreparing = false;
-    private boolean userSeeking = false;
 
-    private TextView playerTitle, currentTime, totalTime;
     private Button playButton;
     private SeekBar seekBar;
+    private TextView timeText;
 
-    private final Handler handler = new Handler();
+    private int selected = -1;
+    private boolean prepared = false;
+    private boolean dragging = false;
+
+    private Handler handler = new Handler();
 
     private final int navy = Color.rgb(16, 27, 53);
     private final int gold = Color.rgb(213, 173, 85);
@@ -41,10 +46,20 @@ public class MainActivity extends Activity {
     private final Runnable progressRunnable = new Runnable() {
         @Override
         public void run() {
-            if (player != null && prepared && player.isPlaying()) {
-                updateProgress();
-                handler.postDelayed(this, 500);
+            if (player != null && prepared) {
+                try {
+                    if (!dragging) {
+                        seekBar.setProgress(player.getCurrentPosition());
+                    }
+
+                    timeText.setText(
+                        formatTime(player.getCurrentPosition())
+                        + " / " + formatTime(player.getDuration())
+                    );
+                } catch (Exception ignored) {}
             }
+
+            handler.postDelayed(this, 500);
         }
     };
 
@@ -53,10 +68,12 @@ public class MainActivity extends Activity {
         super.onCreate(b);
 
         songs = SongStore.load(this);
+        visibleSongs = new ArrayList<>();
+        names = new ArrayList<>();
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(12, 12, 12, 8);
+        root.setPadding(14, 14, 14, 10);
         root.setBackgroundColor(Color.rgb(245, 246, 249));
 
         TextView brand = new TextView(this);
@@ -64,17 +81,22 @@ public class MainActivity extends Activity {
         brand.setTextSize(25);
         brand.setTextColor(gold);
         brand.setGravity(Gravity.CENTER);
-        brand.setPadding(8, 22, 8, 8);
+        brand.setPadding(8, 20, 8, 8);
         brand.setBackgroundColor(navy);
         root.addView(brand);
 
         TextView sub = new TextView(this);
-        sub.setText("BOKIN-KIRA • CHORALE");
+        sub.setText("TARATR’I MARIA • BOKIN-KIRA");
         sub.setTextColor(Color.WHITE);
         sub.setGravity(Gravity.CENTER);
         sub.setBackgroundColor(navy);
         sub.setPadding(8, 0, 8, 18);
         root.addView(sub);
+
+        search = new EditText(this);
+        search.setSingleLine(true);
+        search.setHint("Mitadiava hira...");
+        root.addView(search);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -86,118 +108,115 @@ public class MainActivity extends Activity {
         root.addView(actions);
 
         list = new ListView(this);
-        root.addView(list,
-            new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(list, new LinearLayout.LayoutParams(
+            -1, 0, 1
+        ));
 
         list.setOnItemClickListener((p, v, pos, id) -> {
-            selected = pos;
-            updatePlayerInfo();
-            showSong(pos);
+            Song s = visibleSongs.get(pos);
+            selected = songs.indexOf(s);
+            showSong(selected);
         });
 
-        createPlayerPanel(root);
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.VERTICAL);
+        controls.setPadding(8, 10, 8, 8);
+        controls.setBackgroundColor(navy);
 
-        refresh();
-        updatePlayerInfo();
-
-        setContentView(root);
-    }
-
-    private void createPlayerPanel(LinearLayout root) {
-
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(12, 12, 12, 12);
-        panel.setBackgroundColor(navy);
-
-        playerTitle = new TextView(this);
-        playerTitle.setText("LECTEUR AUDIO");
-        playerTitle.setTextColor(gold);
-        playerTitle.setTextSize(18);
-        playerTitle.setGravity(Gravity.CENTER);
-        panel.addView(playerTitle);
+        timeText = new TextView(this);
+        timeText.setText("00:00 / 00:00");
+        timeText.setTextColor(Color.WHITE);
+        timeText.setGravity(Gravity.CENTER);
+        controls.addView(timeText);
 
         seekBar = new SeekBar(this);
-        seekBar.setMax(1000);
-        panel.addView(seekBar);
-
-        LinearLayout times = new LinearLayout(this);
-        times.setOrientation(LinearLayout.HORIZONTAL);
-
-        currentTime = new TextView(this);
-        currentTime.setText("00:00");
-        currentTime.setTextColor(Color.WHITE);
-
-        totalTime = new TextView(this);
-        totalTime.setText("00:00");
-        totalTime.setTextColor(Color.WHITE);
-        totalTime.setGravity(Gravity.RIGHT);
-
-        times.addView(currentTime,
-            new LinearLayout.LayoutParams(0, -2, 1));
-        times.addView(totalTime,
-            new LinearLayout.LayoutParams(0, -2, 1));
-
-        panel.addView(times);
-
-        LinearLayout controls = new LinearLayout(this);
-        controls.setOrientation(LinearLayout.HORIZONTAL);
-        controls.setGravity(Gravity.CENTER);
-
-        Button previous = new Button(this);
-        previous.setText("⏮");
-        controls.addView(previous);
-
-        playButton = new Button(this);
-        playButton.setText("▶ Play");
-        controls.addView(playButton);
-
-        Button next = new Button(this);
-        next.setText("⏭");
-        controls.addView(next);
-
-        panel.addView(controls);
-
-        previous.setOnClickListener(v -> moveTrack(-1));
-        next.setOnClickListener(v -> moveTrack(1));
-        playButton.setOnClickListener(v -> pauseResume());
+        controls.addView(seekBar);
 
         seekBar.setOnSeekBarChangeListener(
             new SeekBar.OnSeekBarChangeListener() {
 
                 @Override
+                public void onProgressChanged(
+                    SeekBar bar, int progress, boolean fromUser
+                ) {}
+
+                @Override
                 public void onStartTrackingTouch(SeekBar bar) {
-                    userSeeking = true;
+                    dragging = true;
                 }
 
                 @Override
                 public void onStopTrackingTouch(SeekBar bar) {
-                    userSeeking = false;
+                    dragging = false;
 
                     if (player != null && prepared) {
-                        int duration = player.getDuration();
-                        int position = duration * bar.getProgress() / 1000;
-                        player.seekTo(position);
-                        updateProgress();
+                        try {
+                            player.seekTo(bar.getProgress());
+                        } catch (Exception ignored) {}
                     }
-                }
-
-                @Override
-                public void onProgressChanged(
-                    SeekBar bar, int progress, boolean fromUser) {
                 }
             }
         );
 
-        root.addView(panel,
-            new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+
+        addControl(buttons, "⏮", v -> playAdjacent(-1));
+
+        playButton = new Button(this);
+        playButton.setText("▶ Play");
+        playButton.setTextColor(navy);
+        playButton.setOnClickListener(v -> togglePlay());
+        buttons.addView(playButton,
+            new LinearLayout.LayoutParams(0, -2, 2));
+
+        addControl(buttons, "⏭", v -> playAdjacent(1));
+
+        controls.addView(buttons);
+        root.addView(controls);
+
+        search.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(
+                CharSequence s, int start, int count, int after
+            ) {}
+
+            @Override
+            public void onTextChanged(
+                CharSequence s, int start, int before, int count
+            ) {
+                refresh();
+            }
+
+            @Override
+            public void afterTextChanged(Editable e) {}
+        });
+
+        refresh();
+        setContentView(root);
+
+        handler.post(progressRunnable);
     }
 
     private void addButton(
         LinearLayout row,
         String label,
-        View.OnClickListener listener) {
+        View.OnClickListener listener
+    ) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setTextColor(navy);
+        b.setOnClickListener(listener);
 
+        row.addView(b,
+            new LinearLayout.LayoutParams(0, -2, 1));
+    }
+
+    private void addControl(
+        LinearLayout row,
+        String label,
+        View.OnClickListener listener
+    ) {
         Button b = new Button(this);
         b.setText(label);
         b.setTextColor(navy);
@@ -208,10 +227,23 @@ public class MainActivity extends Activity {
     }
 
     private void refresh() {
-        ArrayList<String> names = new ArrayList<>();
+        names.clear();
+        visibleSongs.clear();
+
+        String query = search == null
+            ? ""
+            : search.getText().toString().toLowerCase(Locale.ROOT);
 
         for (Song s : songs) {
-            names.add(s.title);
+            String title = s.title == null ? "" : s.title;
+            String lyrics = s.lyrics == null ? "" : s.lyrics;
+
+            if (title.toLowerCase(Locale.ROOT).contains(query)
+                || lyrics.toLowerCase(Locale.ROOT).contains(query)) {
+
+                visibleSongs.add(s);
+                names.add(title);
+            }
         }
 
         adapter = new ArrayAdapter<>(
@@ -221,39 +253,17 @@ public class MainActivity extends Activity {
         );
 
         list.setAdapter(adapter);
-        updatePlayerInfo();
-    }
-
-    private void updatePlayerInfo() {
-
-        if (playerTitle == null) return;
-
-        if (selected >= 0 && selected < songs.size()) {
-            playerTitle.setText("♫ " + songs.get(selected).title);
-        } else {
-            playerTitle.setText("LECTEUR AUDIO - Misafidiana hira");
-        }
-
-        if (player == null || !prepared) {
-            currentTime.setText("00:00");
-            totalTime.setText("00:00");
-            seekBar.setProgress(0);
-        }
-
-        if (!isPreparing) {
-            playButton.setText(
-                player != null && prepared && player.isPlaying()
-                    ? "❚❚ Pause" : "▶ Play"
-            );
-        }
     }
 
     private void newSong() {
         editSong("", "", -1);
     }
 
-    private void editSong(String title, String lyrics, int index) {
-
+    private void editSong(
+        String title,
+        String lyrics,
+        int index
+    ) {
         LinearLayout box = new LinearLayout(this);
         box.setPadding(16, 8, 16, 8);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -280,9 +290,11 @@ public class MainActivity extends Activity {
                 String t = body.getText().toString().trim();
 
                 if (n.isEmpty()) {
-                    Toast.makeText(this,
+                    Toast.makeText(
+                        this,
                         "Ampidiro ny lohateny",
-                        Toast.LENGTH_SHORT).show();
+                        Toast.LENGTH_SHORT
+                    ).show();
                     return;
                 }
 
@@ -291,7 +303,6 @@ public class MainActivity extends Activity {
                     songs.get(index).lyrics = t;
                 } else {
                     songs.add(new Song(n, t, ""));
-                    selected = songs.size() - 1;
                 }
 
                 SongStore.save(this, songs);
@@ -301,7 +312,7 @@ public class MainActivity extends Activity {
     }
 
     private void showSong(int pos) {
-
+        selected = pos;
         Song s = songs.get(pos);
 
         String[] opts = {
@@ -322,7 +333,10 @@ public class MainActivity extends Activity {
 
                 if (which == 1) {
                     Intent i = new Intent(
-                        this, ProjectionActivity.class);
+                        this,
+                        ProjectionActivity.class
+                    );
+
                     i.putExtra("title", s.title);
                     i.putExtra("lyrics", s.lyrics);
                     startActivity(i);
@@ -333,7 +347,7 @@ public class MainActivity extends Activity {
                 }
 
                 if (which == 3) {
-                    playSelected();
+                    play(s);
                 }
 
                 if (which == 4) {
@@ -342,14 +356,11 @@ public class MainActivity extends Activity {
                         .setNegativeButton("Tsia", null)
                         .setPositiveButton("Eny", (x, y) -> {
 
-                            stopPlayer();
-
                             songs.remove(pos);
 
                             if (selected == pos) {
+                                stopPlayer();
                                 selected = -1;
-                            } else if (selected > pos) {
-                                selected--;
                             }
 
                             SongStore.save(this, songs);
@@ -362,7 +373,6 @@ public class MainActivity extends Activity {
     }
 
     private void pickText() {
-
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("text/*");
@@ -371,11 +381,12 @@ public class MainActivity extends Activity {
     }
 
     private void pickAudio() {
-
-        if (selected < 0 || selected >= songs.size()) {
-            Toast.makeText(this,
+        if (selected < 0) {
+            Toast.makeText(
+                this,
                 "Safidio aloha ny hira",
-                Toast.LENGTH_SHORT).show();
+                Toast.LENGTH_SHORT
+            ).show();
             return;
         }
 
@@ -388,8 +399,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(
-        int req, int res, Intent data) {
-
+        int req, int res, Intent data
+    ) {
         super.onActivityResult(req, res, data);
 
         if (res != RESULT_OK || data == null) return;
@@ -398,15 +409,16 @@ public class MainActivity extends Activity {
 
         try {
             getContentResolver().takePersistableUriPermission(
-                u, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        } catch (Exception ignored) {
-        }
+                u,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            );
+        } catch (Exception ignored) {}
 
         if (req == PICK_TEXT) {
-
-            try (java.io.InputStream in =
-                getContentResolver().openInputStream(u)) {
-
+            try (
+                java.io.InputStream in =
+                    getContentResolver().openInputStream(u)
+            ) {
                 java.io.ByteArrayOutputStream out =
                     new java.io.ByteArrayOutputStream();
 
@@ -426,181 +438,187 @@ public class MainActivity extends Activity {
                     ""
                 ));
 
-                selected = songs.size() - 1;
-
                 SongStore.save(this, songs);
                 refresh();
 
+                Toast.makeText(
+                    this,
+                    "Hira nampidirina",
+                    Toast.LENGTH_SHORT
+                ).show();
+
             } catch (Exception e) {
-                Toast.makeText(this,
+                Toast.makeText(
+                    this,
                     "Tsy voavaky ilay rakitra",
-                    Toast.LENGTH_LONG).show();
+                    Toast.LENGTH_LONG
+                ).show();
             }
         }
 
         if (req == PICK_AUDIO && selected >= 0) {
-
             songs.get(selected).audioUri = u.toString();
 
             SongStore.save(this, songs);
-            updatePlayerInfo();
 
-            Toast.makeText(this,
+            Toast.makeText(
+                this,
                 "Audio nampidirina",
-                Toast.LENGTH_SHORT).show();
+                Toast.LENGTH_SHORT
+            ).show();
         }
     }
 
-    private void pauseResume() {
+    private void togglePlay() {
+        try {
+            if (player != null && prepared) {
 
-        if (player != null && prepared) {
+                if (player.isPlaying()) {
+                    player.pause();
+                    playButton.setText("▶ Play");
+                } else {
+                    player.start();
+                    playButton.setText("⏸ Pause");
+                }
 
-            if (player.isPlaying()) {
-                player.pause();
-                playButton.setText("▶ Play");
+            } else if (selected >= 0) {
+                play(songs.get(selected));
             } else {
-                player.start();
-                playButton.setText("❚❚ Pause");
-                handler.removeCallbacks(progressRunnable);
-                handler.post(progressRunnable);
+                Toast.makeText(
+                    this,
+                    "Safidio aloha ny hira",
+                    Toast.LENGTH_SHORT
+                ).show();
             }
 
-        } else {
-            playSelected();
-        }
+        } catch (Exception ignored) {}
     }
 
-    private void playSelected() {
+    private void play(Song s) {
+        int index = songs.indexOf(s);
 
-        if (selected < 0 || selected >= songs.size()) {
-            Toast.makeText(this,
-                "Safidio aloha ny hira",
-                Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        Song s = songs.get(selected);
+        if (index >= 0) selected = index;
 
         if (s.audioUri == null || s.audioUri.isEmpty()) {
-            Toast.makeText(this,
+            Toast.makeText(
+                this,
                 "Tsy mbola misy audio amin'ity hira ity",
-                Toast.LENGTH_SHORT).show();
+                Toast.LENGTH_SHORT
+            ).show();
             return;
         }
 
         stopPlayer();
 
         try {
-
-            final MediaPlayer mp = new MediaPlayer();
-            player = mp;
+            player = new MediaPlayer();
             prepared = false;
-            isPreparing = true;
 
-            playButton.setText("Miomana...");
+            player.setDataSource(
+                this,
+                Uri.parse(s.audioUri)
+            );
 
-            mp.setDataSource(this, Uri.parse(s.audioUri));
-
-            mp.setOnPreparedListener(p -> {
-
-                if (player != mp) {
-                    mp.release();
-                    return;
-                }
-
+            player.setOnPreparedListener(mp -> {
                 prepared = true;
-                isPreparing = false;
 
-                seekBar.setProgress(0);
-                totalTime.setText(formatTime(mp.getDuration()));
-                currentTime.setText("00:00");
-
-                mp.start();
-
-                playButton.setText("❚❚ Pause");
-
-                handler.removeCallbacks(progressRunnable);
-                handler.post(progressRunnable);
+                try {
+                    seekBar.setMax(mp.getDuration());
+                    seekBar.setProgress(0);
+                    mp.start();
+                    playButton.setText("⏸ Pause");
+                } catch (Exception ignored) {}
             });
 
-            mp.setOnCompletionListener(p -> {
-
-                handler.removeCallbacks(progressRunnable);
-
-                if (player == mp) {
-                    mp.release();
-                    player = null;
-                }
-
-                prepared = false;
-                isPreparing = false;
-
-                playButton.setText("▶ Play");
-                seekBar.setProgress(0);
-                currentTime.setText("00:00");
+            player.setOnCompletionListener(mp -> {
+                playAdjacent(1);
             });
 
-            mp.prepareAsync();
+            player.setOnErrorListener((mp, what, extra) -> {
+                stopPlayer();
+
+                Toast.makeText(
+                    this,
+                    "Nisy olana tamin'ny audio",
+                    Toast.LENGTH_SHORT
+                ).show();
+
+                return true;
+            });
+
+            player.prepareAsync();
+
+            timeText.setText("Miandry ny audio...");
 
         } catch (Exception e) {
-
             stopPlayer();
 
-            Toast.makeText(this,
+            Toast.makeText(
+                this,
                 "Tsy afaka alefa ilay audio",
-                Toast.LENGTH_LONG).show();
+                Toast.LENGTH_SHORT
+            ).show();
         }
     }
 
-    private void moveTrack(int direction) {
-
+    private void playAdjacent(int direction) {
         if (songs.isEmpty()) return;
 
-        int next = selected + direction;
+        int start = selected;
 
-        if (next < 0 || next >= songs.size()) {
-            Toast.makeText(this,
-                "Tsy misy hira intsony amin'io lalana io",
-                Toast.LENGTH_SHORT).show();
-            return;
+        if (start < 0) start = 0;
+
+        for (int i = 1; i <= songs.size(); i++) {
+            int index = (start + direction * i) % songs.size();
+
+            if (index < 0) index += songs.size();
+
+            Song s = songs.get(index);
+
+            if (s.audioUri != null && !s.audioUri.isEmpty()) {
+                selected = index;
+                play(s);
+                return;
+            }
         }
 
-        selected = next;
-        stopPlayer();
-        updatePlayerInfo();
-
-        if (songs.get(selected).audioUri != null
-            && !songs.get(selected).audioUri.isEmpty()) {
-            playSelected();
-        } else {
-            Toast.makeText(this,
-                "Tsy mbola misy audio amin'ity hira ity",
-                Toast.LENGTH_SHORT).show();
-        }
+        Toast.makeText(
+            this,
+            "Tsy misy audio hafa",
+            Toast.LENGTH_SHORT
+        ).show();
     }
 
-    private void updateProgress() {
+    private void stopPlayer() {
+        if (player != null) {
+            try {
+                player.stop();
+            } catch (Exception ignored) {}
 
-        if (player == null || !prepared) return;
+            try {
+                player.release();
+            } catch (Exception ignored) {}
 
-        try {
+            player = null;
+        }
 
-            int duration = player.getDuration();
-            int position = player.getCurrentPosition();
+        prepared = false;
 
-            if (!userSeeking && duration > 0) {
-                seekBar.setProgress(position * 1000 / duration);
-            }
+        if (playButton != null) {
+            playButton.setText("▶ Play");
+        }
 
-            currentTime.setText(formatTime(position));
-            totalTime.setText(formatTime(duration));
+        if (seekBar != null) {
+            seekBar.setProgress(0);
+            seekBar.setMax(100);
+        }
 
-        } catch (Exception ignored) {
+        if (timeText != null) {
+            timeText.setText("00:00 / 00:00");
         }
     }
 
     private String formatTime(int milliseconds) {
-
         int seconds = milliseconds / 1000;
         int minutes = seconds / 60;
         seconds = seconds % 60;
@@ -613,36 +631,10 @@ public class MainActivity extends Activity {
         );
     }
 
-    private void stopPlayer() {
-
-        handler.removeCallbacks(progressRunnable);
-
-        if (player != null) {
-            try {
-                player.stop();
-            } catch (Exception ignored) {
-            }
-
-            try {
-                player.release();
-            } catch (Exception ignored) {
-            }
-
-            player = null;
-        }
-
-        prepared = false;
-        isPreparing = false;
-
-        if (playButton != null) {
-            playButton.setText("▶ Play");
-        }
-    }
-
     @Override
     protected void onDestroy() {
+        handler.removeCallbacks(progressRunnable);
         stopPlayer();
         super.onDestroy();
     }
-  }
-              
+    }
